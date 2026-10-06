@@ -95,13 +95,15 @@ def test_http_rejection_raises():
         broker(Fake(post=(403, {"message": "forbidden"}))).submit(plan(), NOW)
 
 
-def test_account_loss_halts(monkeypatch):
-    f = Fake()
-    orig = f.__call__
-    f.__class__.__call__ = lambda self, m, u, h, b, t: (200, {"equity": "9400", "last_equity": "10000"}) \
-        if u.endswith("/v2/account") else orig(m, u, h, b, t)
+def test_account_loss_halts():
+    class Down(Fake):
+        def __call__(self, method, url, headers, body, timeout):
+            if url.endswith("/v2/account"):
+                return 200, {"equity": "9400", "last_equity": "10000"}
+            return super().__call__(method, url, headers, body, timeout)
+    f = Down()
     r = broker(f, daily_loss_limit=500).submit(plan(), NOW)
-    assert r.decision is Decision.HALT
+    assert r.decision is Decision.HALT and not posts(f)
 
 
 def test_paper_host_pinned_and_no_secrets_in_repr():
