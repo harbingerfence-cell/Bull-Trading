@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-EVENT_TYPES = {"plan", "gate", "fill", "exit", "review", "reject"}
+EVENT_TYPES = {"plan", "gate", "fill", "exit", "review", "reject", "note", "score"}
 
 
 class JournalError(Exception):
