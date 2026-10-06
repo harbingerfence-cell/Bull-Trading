@@ -8,3 +8,15 @@
 4. Run: `python -m bull_brain.run_paper --symbol SPY --limits limits.json`
    Start before 09:30 ET; it flattens at the config's `flat_time` and journals to `paper_journal.jsonl`.
 5. Kill switch: `AlpacaPaperBroker(...).cancel_all()`.
+
+## TradingView webhook (paper)
+1. Env: `TV_WEBHOOK_SECRET` (>=16 chars), `TV_PATH_TOKEN` (random string), Alpaca keys, `PORT`.
+2. Run: `python -m bull_brain.webhook --limits limits.json --symbols SPY,QQQ,AAPL`
+   (needs a public HTTPS URL, e.g. deploy on Railway; this cloud sandbox is not reachable from TradingView).
+3. TradingView alert -> Notifications -> Webhook URL: `https://<host>/tv/<TV_PATH_TOKEN>` (webhooks need a paid TradingView plan).
+4. Alert message (JSON): see the template in `bull_brain/webhook.py` docstring. Use either `stop` or `stop_pct`.
+   The alert's price is never used: the server fetches a fresh quote, sizes from `risk_per_trade_fraction`, and sends the plan through the risk gate.
+5. Safeguards: constant-time secret check, symbol allow-list, alert-age limit, per-day alert cap, duplicate `alert_id` rejection, 8 KB body cap.
+
+## Indicators
+`bull_brain/indicators.py`: sma, ema, rsi (Wilder), atr (Wilder), session_vwap, relative_volume, computed from bars.
