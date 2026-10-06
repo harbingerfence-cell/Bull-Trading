@@ -178,3 +178,15 @@ class AlpacaPaperBroker:
         """Kill switch: cancel open orders and flatten positions."""
         self._call("DELETE", "/v2/orders")
         self._call("DELETE", "/v2/positions")
+
+    def has_position(self, symbol: str) -> bool:
+        return any(p["symbol"] == symbol and float(p.get("qty", 0)) != 0
+                   for p in self._get("/v2/positions"))
+
+    def open_order_symbols(self) -> set[str]:
+        return {o["symbol"] for o in self._get("/v2/orders?status=open&limit=100")}
+
+    def flatten(self, symbol: str) -> None:
+        """Cancel open orders (bracket legs hold the shares), then close the position."""
+        self._call("DELETE", "/v2/orders")
+        self._call("DELETE", f"/v2/positions/{urllib.parse.quote(symbol, safe='')}")

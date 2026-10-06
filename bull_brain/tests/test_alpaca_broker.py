@@ -108,3 +108,19 @@ def test_paper_host_pinned_and_no_secrets_in_repr():
     with pytest.raises(AlpacaError):
         _urllib_transport("GET", "https://api.alpaca.markets/v2/account", {}, None, 1)
     assert "s" != repr(broker(Fake())) and "secret" not in repr(broker(Fake()))
+
+
+def test_has_position_and_flatten_cancels_orders_first():
+    class F3(Fake):
+        def __call__(self, method, url, headers, body, timeout):
+            path = url.split("alpaca.markets")[1]
+            if path == "/v2/positions" and method == "GET":
+                self.calls.append((method, path, None))
+                return 200, [{"symbol": "SPY", "qty": "10", "market_value": "5000"}]
+            return super().__call__(method, url, headers, body, timeout)
+    f = F3()
+    b = broker(f)
+    assert b.has_position("SPY") and not b.has_position("QQQ")
+    b.flatten("SPY")
+    dels = [c[:2] for c in f.calls if c[0] == "DELETE"]
+    assert dels == [("DELETE", "/v2/orders"), ("DELETE", "/v2/positions/SPY")]
