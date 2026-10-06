@@ -183,6 +183,9 @@ class AlpacaPaperBroker:
         return any(p["symbol"] == symbol and float(p.get("qty", 0)) != 0
                    for p in self._get("/v2/positions"))
 
+    def is_market_open(self) -> bool:
+        return bool(self._get("/v2/clock").get("is_open"))
+
     def position_symbols(self) -> set[str]:
         return {p["symbol"] for p in self._get("/v2/positions") if float(p.get("qty", 0)) != 0}
 

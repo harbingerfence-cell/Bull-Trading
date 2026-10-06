@@ -74,6 +74,14 @@ def save_queue(path: str | Path, asof: date, setups: list[Setup]) -> None:
     Path(path).write_text(json.dumps({"asof": asof.isoformat(), "setups": [asdict(s) for s in setups]}, indent=1))
 
 
+def queue_is_fresh(asof: Optional[str], now: datetime, max_age_days: int = 4) -> bool:
+    """A queue is usable only if scanned within the last few days (covers weekends/holidays)."""
+    if not asof:
+        return False
+    age = (now.astimezone(ET).date() - date.fromisoformat(asof)).days
+    return 0 <= age <= max_age_days
+
+
 def load_queue(path: str | Path) -> tuple[Optional[str], list[Setup]]:
     p = Path(path)
     if not p.exists():
@@ -228,8 +236,16 @@ def main() -> None:
     if a.cmd == "open":
         asof, setups = load_queue(a.queue)
         print("queue as of", asof, "-", len(setups), "setups")
-        for r in open_setups(setups, broker, MarketDataAdapter(provider, limits), limits, now):
-            print(r)
+        if not setups:
+            print("nothing queued")
+        elif not queue_is_fresh(asof, now):
+            print("queue is stale; skipping")
+        elif not broker.is_market_open():
+            print("market closed; skipping (queue kept)")
+        else:
+            for r in open_setups(setups, broker, MarketDataAdapter(provider, limits), limits, now):
+                print(r)
+            save_queue(a.queue, date.fromisoformat(asof), [])  # consumed: never re-run
     elif a.cmd == "manage":
         print("flattened:", manage(broker, journal, now))
     else:

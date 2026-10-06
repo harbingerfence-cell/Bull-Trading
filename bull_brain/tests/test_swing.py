@@ -110,3 +110,10 @@ def test_score_notes_scores_resolved_and_skips_open():
     out = score_notes(j, lambda s, a, z: win_bars, NOW + timedelta(days=3))
     assert out and out[0]["outcome"] == "TARGET" and out[0]["r"] > 1
     assert score_notes(j, lambda s, a, z: win_bars, NOW + timedelta(days=4)) == []  # not re-scored
+
+
+def test_queue_freshness_guard():
+    from bull_brain.swing import queue_is_fresh
+    assert queue_is_fresh("2026-10-06", NOW) and queue_is_fresh("2026-10-03", NOW)   # weekend gap ok
+    assert not queue_is_fresh("2026-09-20", NOW) and not queue_is_fresh(None, NOW)
+    assert not queue_is_fresh("2026-10-09", NOW)                                      # future-dated
