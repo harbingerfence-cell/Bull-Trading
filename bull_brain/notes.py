@@ -9,7 +9,7 @@ AI's judgment is measured instead of trusted. Notes and scores are journaled.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
@@ -98,6 +98,8 @@ def score_note(note: ResearchNote, bars: list[Bar], slippage_bps: float = 2.0) -
         if ht:
             exit_px, outcome = note.target, "TARGET"
             break
+    if outcome == "TIME" and note.horizon_end and live[-1].ts < note.horizon_end - timedelta(days=1):
+        return {"note_id": note.note_id, "outcome": "OPEN", "r": None, "confidence": note.confidence.value}
     r = (exit_px - entry) * d / risk
     return {"note_id": note.note_id, "outcome": outcome, "r": r, "entry": entry, "exit": exit_px,
             "confidence": note.confidence.value}

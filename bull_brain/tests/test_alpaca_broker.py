@@ -119,10 +119,14 @@ def test_has_position_and_flatten_cancels_orders_first():
             if path == "/v2/positions" and method == "GET":
                 self.calls.append((method, path, None))
                 return 200, [{"symbol": "SPY", "qty": "10", "market_value": "5000"}]
+            if path.startswith("/v2/orders?") and method == "GET":
+                self.calls.append((method, path, None))
+                return 200, [{"id": "o1", "symbol": "SPY"}, {"id": "o2", "symbol": "SPY"}]
             return super().__call__(method, url, headers, body, timeout)
     f = F3()
     b = broker(f)
     assert b.has_position("SPY") and not b.has_position("QQQ")
     b.flatten("SPY")
     dels = [c[:2] for c in f.calls if c[0] == "DELETE"]
-    assert dels == [("DELETE", "/v2/orders"), ("DELETE", "/v2/positions/SPY")]
+    assert dels == [("DELETE", "/v2/orders/o1"), ("DELETE", "/v2/orders/o2"), ("DELETE", "/v2/positions/SPY")]
+    assert any("symbols=SPY" in c[1] for c in f.calls if c[0] == "GET")  # only this symbol's orders

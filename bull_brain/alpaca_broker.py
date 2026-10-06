@@ -103,12 +103,12 @@ class AlpacaPaperBroker:
                             instrument_exposure=sum(abs(v) for s, v in vals if s == instrument))
 
     # -- orders --------------------------------------------------------
-    def _order_body(self, plan: TradePlan) -> dict:
+    def _order_body(self, plan: TradePlan, time_in_force: str = "day") -> dict:
         long = plan.side is Side.LONG
         risk = abs(plan.entry - plan.stop)
         target = plan.entry + 2 * risk if long else plan.entry - 2 * risk
         return {"symbol": plan.instrument, "qty": str(int(plan.quantity)),
-                "side": "buy" if long else "sell", "type": "market", "time_in_force": "day",
+                "side": "buy" if long else "sell", "type": "market", "time_in_force": time_in_force,
                 "order_class": "bracket", "client_order_id": plan.plan_id,
                 "take_profit": {"limit_price": f"{target:.2f}"},
                 "stop_loss": {"stop_price": f"{plan.stop:.2f}"}}
@@ -123,7 +123,7 @@ class AlpacaPaperBroker:
         return data
 
     def submit(self, plan: TradePlan, now: Optional[datetime] = None,
-               take_profit: Optional[float] = None) -> GateResult:
+               take_profit: Optional[float] = None, time_in_force: str = "day") -> GateResult:
         now = now or datetime.now(timezone.utc)
         self.journal.append("plan", plan.plan_id, plan.model_dump(mode="json"), now)
 
@@ -145,7 +145,7 @@ class AlpacaPaperBroker:
         if not res.approved:
             return res
 
-        body = self._order_body(plan)
+        body = self._order_body(plan, time_in_force)
         if take_profit is not None:
             body["take_profit"] = {"limit_price": f"{take_profit:.2f}"}
         order = self._place(body, plan.plan_id, now)
@@ -183,10 +183,15 @@ class AlpacaPaperBroker:
         return any(p["symbol"] == symbol and float(p.get("qty", 0)) != 0
                    for p in self._get("/v2/positions"))
 
+    def position_symbols(self) -> set[str]:
+        return {p["symbol"] for p in self._get("/v2/positions") if float(p.get("qty", 0)) != 0}
+
     def open_order_symbols(self) -> set[str]:
         return {o["symbol"] for o in self._get("/v2/orders?status=open&limit=100")}
 
     def flatten(self, symbol: str) -> None:
-        """Cancel open orders (bracket legs hold the shares), then close the position."""
-        self._call("DELETE", "/v2/orders")
-        self._call("DELETE", f"/v2/positions/{urllib.parse.quote(symbol, safe='')}")
+        """Cancel THIS symbol's open orders (bracket legs hold the shares), then close its position."""
+        sym = urllib.parse.quote(symbol, safe="")
+        for o in self._get("/v2/orders?" + urllib.parse.urlencode({"status": "open", "symbols": symbol, "limit": 100})):
+            self._call("DELETE", f"/v2/orders/{o['id']}")
+        self._call("DELETE", f"/v2/positions/{sym}")

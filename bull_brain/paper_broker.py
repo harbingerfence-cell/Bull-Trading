@@ -74,7 +74,8 @@ class PaperBroker:
         self.weekly_pnl = 0.0
 
     # -- orders --------------------------------------------------------
-    def submit(self, plan: TradePlan, now: Optional[datetime] = None) -> GateResult:
+    def submit(self, plan: TradePlan, now: Optional[datetime] = None, take_profit: Optional[float] = None,
+               time_in_force: str = "day") -> GateResult:
         now = now or datetime.now(timezone.utc)
         if plan.plan_id in self._seen:
             res = GateResult(plan_id=plan.plan_id, decision=Decision.NO_TRADE, approved=False,

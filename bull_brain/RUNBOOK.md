@@ -20,3 +20,10 @@
 
 ## Indicators
 `bull_brain/indicators.py`: sma, ema, rsi (Wilder), atr (Wilder), session_vwap, relative_volume, computed from bars.
+
+## Swing scanner (3 long chart patterns, paper)
+Frozen rules from `scripts/run_patterns.py`; SPY>200d regime filter tested once and rejected.
+- After the close (~16:20 ET): `python -m bull_brain.swing scan` -> `swing_queue.json` + journaled notes.
+- Next morning (~09:31 ET): `python -m bull_brain.swing open` -> quote check, risk sizing, gate, GTC bracket order (max 3 new/day, 8 open).
+- Daily: `python -m bull_brain.swing manage` (30-trading-day time stop). Weekly: `python -m bull_brain.swing score`.
+- State lives in `swing_journal.jsonl` / `swing_queue.json` (local files; use a persistent volume if run on a host).

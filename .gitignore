@@ -4,3 +4,4 @@ __pycache__/
 *.jsonl
 .env
 .env.*
+swing_queue.json
