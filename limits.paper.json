@@ -1,0 +1,12 @@
+{
+  "risk_per_trade_fraction": 0.005,
+  "daily_loss_limit": 500,
+  "weekly_loss_limit": 1500,
+  "max_drawdown_fraction": 0.10,
+  "max_gross_exposure_fraction": 2.0,
+  "max_net_exposure_fraction": 2.0,
+  "max_leverage": 2.0,
+  "max_position_fraction": 0.25,
+  "max_spread_bps": 10,
+  "max_quote_age_seconds": 10
+}
