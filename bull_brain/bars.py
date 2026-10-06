@@ -45,3 +45,25 @@ def fetch_alpaca_bars(provider: AlpacaQuoteProvider, symbol: str, start: datetim
         token = body.get("next_page_token")
         if not token:
             return bars
+
+
+def fetch_alpaca_crypto_bars(provider: AlpacaQuoteProvider, symbol: str, start: datetime, end: datetime,
+                             timeframe: str = "1Min") -> list[Bar]:
+    """Page through Alpaca crypto bars (symbol like 'BTC/USD')."""
+    headers = {"APCA-API-KEY-ID": provider._key, "APCA-API-SECRET-KEY": provider._secret,
+               "Accept": "application/json"}
+    bars: list[Bar] = []
+    token: Optional[str] = None
+    while True:
+        q = {"symbols": symbol, "timeframe": timeframe, "limit": 10000, "sort": "asc",
+             "start": start.astimezone(timezone.utc).isoformat(),
+             "end": end.astimezone(timezone.utc).isoformat()}
+        if token:
+            q["page_token"] = token
+        url = f"{DATA_URL}/v1beta3/crypto/us/bars?" + urllib.parse.urlencode(q)
+        body = provider._transport(url, headers, provider.timeout)
+        for r in (body.get("bars") or {}).get(symbol, []):
+            bars.append(Bar(parse_timestamp(r["t"]), r["o"], r["h"], r["l"], r["c"], r.get("v", 0)))
+        token = body.get("next_page_token")
+        if not token:
+            return bars
