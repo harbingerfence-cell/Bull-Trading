@@ -258,6 +258,28 @@ DETECTORS: dict[str, Callable[[Series, int], Optional[Signal]]] = {
                             ascending_triangle, descending_triangle, bull_flag, bear_flag, cup_handle)}
 
 
+# ---- event day (volume spike + big move): trade WITH the move --------------
+def event_day(s: Series, t: int) -> Optional[Signal]:
+    """Frozen rule from scripts/run_events.py: volume >= 2.5x prior-20d mean and |close/prev - 1| >= 4%.
+    Stop = the event bar's opposite extreme; target = 2R from the event close; hold <= 20 days."""
+    if t < 25:
+        return None
+    b, p = s.b[t], s.b[t - 1]
+    vavg = sum(x.volume for x in s.b[t - 20:t]) / 20
+    ret = b.close / p.close - 1
+    if vavg <= 0 or b.volume < 2.5 * vavg or abs(ret) < 0.04:
+        return None
+    if ret > 0:
+        risk = b.close - b.low
+        return Signal("event_day", "LONG", b.low, b.close + 2 * risk) if risk > 0 else None
+    risk = b.high - b.close
+    return Signal("event_day", "SHORT", b.high, b.close - 2 * risk) if risk > 0 else None
+
+
+EVENT_DETECTORS: dict[str, Callable[[Series, int], Optional[Signal]]] = {"event_day": event_day}
+HOLD_DAYS = {"event_day": 20}  # default 30 for everything else
+
+
 # ---- trade simulation ------------------------------------------------------
 @dataclass
 class PTrade:

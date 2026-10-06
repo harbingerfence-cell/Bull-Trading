@@ -27,3 +27,8 @@ Frozen rules from `scripts/run_patterns.py`; SPY>200d regime filter tested once 
 - Next morning (~09:31 ET): `python -m bull_brain.swing open` -> quote check, risk sizing, gate, GTC bracket order (max 3 new/day, 8 open).
 - Daily: `python -m bull_brain.swing manage` (30-trading-day time stop). Weekly: `python -m bull_brain.swing score`.
 - State lives in `swing_journal.jsonl` / `swing_queue.json` (local files; use a persistent volume if run on a host).
+
+### Event-day signal (added to the swing scanner, long and short)
+Frozen rule from `scripts/run_events.py`: volume >= 2.5x prior-20d mean and |close-to-close| >= 4%; trade WITH the move,
+stop at the event bar's opposite extreme, target 2R, 20-trading-day time stop. Evidence is weak (shorts beat the random-date
+control in dev and test but each period is within noise); it runs on paper as a forward test only.

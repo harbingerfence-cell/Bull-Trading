@@ -25,9 +25,10 @@ from .market_data import MarketDataAdapter
 from .models import AssetClass, Confidence, Mode, RiskLimits, Side, TradePlan
 from .notes import ResearchNote, record_note, record_score, score_note
 from .orb import ET, Bar
-from .patterns import DETECTORS, Series
+from .patterns import DETECTORS, EVENT_DETECTORS, HOLD_DAYS, Series
 
-SWING_PATTERNS = ("bull_flag", "cup_handle", "inverse_head_shoulders")
+SWING_PATTERNS = ("bull_flag", "cup_handle", "inverse_head_shoulders", "event_day")
+ALL_DETECTORS = {**DETECTORS, **EVENT_DETECTORS}
 MIN_BARS = 200
 
 
@@ -47,7 +48,7 @@ class Setup:
 
     @property
     def rr(self) -> float:
-        return (self.target - self.trigger_close) / (self.trigger_close - self.stop)
+        return abs(self.target - self.trigger_close) / abs(self.trigger_close - self.stop)
 
 
 def scan(bars_by_symbol: dict[str, list[Bar]], now: Optional[datetime] = None,
@@ -63,9 +64,10 @@ def scan(bars_by_symbol: dict[str, list[Bar]], now: Optional[datetime] = None,
         s = Series(bars)
         t = len(bars) - 1
         for name in patterns:
-            sig = DETECTORS[name](s, t)
-            if sig and sig.side == "LONG":
-                out.append(Setup(sym, name, bars[t].ts.date().isoformat(), bars[t].close, sig.stop, sig.target))
+            sig = ALL_DETECTORS[name](s, t)
+            if sig:
+                out.append(Setup(sym, name, bars[t].ts.date().isoformat(), bars[t].close, sig.stop, sig.target,
+                                 sig.side))
     order = {p: i for i, p in enumerate(patterns)}
     return sorted(out, key=lambda x: (order[x.pattern], x.symbol))
 
@@ -93,12 +95,14 @@ def load_queue(path: str | Path) -> tuple[Optional[str], list[Setup]]:
 def setup_to_note(st: Setup) -> ResearchNote:
     d = date.fromisoformat(st.signal_date)
     created = datetime.combine(d, time(16, 0), tzinfo=ET)
+    long = st.side == "LONG"
     return ResearchNote(
-        note_id=st.note_id, session=d, created_at=created, symbol=st.symbol, side=Side.LONG,
-        catalyst=f"{st.pattern} breakout on the daily chart",
-        thesis=f"{st.pattern} broke out on the close of {st.signal_date}; measured-move target {st.target:.2f}",
-        opposing_thesis="false breakout or fade; historical long-pattern results may reflect a rising market, not pattern skill",
-        invalidation=f"trades below {st.stop:.2f}", entry=st.trigger_close, stop=st.stop, target=st.target,
+        note_id=st.note_id, session=d, created_at=created, symbol=st.symbol, side=Side.LONG if long else Side.SHORT,
+        catalyst=f"{st.pattern} signal on the daily chart",
+        thesis=f"{st.pattern} {st.side} signal on the close of {st.signal_date}; target {st.target:.2f}",
+        opposing_thesis="false signal or reversal; historical results may reflect market drift or noise, not skill",
+        invalidation=f"trades {'below' if long else 'above'} {st.stop:.2f}", entry=st.trigger_close, stop=st.stop,
+        target=st.target,
         confidence=Confidence.LOW, horizon_end=created + timedelta(days=45))
 
 
@@ -127,15 +131,17 @@ def open_setups(setups: list[Setup], broker, adapter: MarketDataAdapter, limits:
         if quote is None or not chk.usable:
             results.append({**r, "status": "no_data", "reason": f"quote unusable: {chk.status.value} {chk.detail}"})
             continue
-        entry = quote.ask
-        if not (st.stop < entry < st.target) or (st.target - entry) < (entry - st.stop):
+        long = st.side == "LONG"
+        entry = quote.ask if long else quote.bid
+        ok = (st.stop < entry < st.target) if long else (st.target < entry < st.stop)
+        if not ok or abs(st.target - entry) < abs(entry - st.stop):
             results.append({**r, "status": "skipped", "reason": f"live price {entry:.2f} invalid vs stop/target"})
             continue
         if limits.risk_per_trade_fraction is None:
             results.append({**r, "status": "no_data", "reason": "risk_per_trade_fraction unset"})
             continue
         eq = broker.account_state(st.symbol).equity
-        qty = eq * limits.risk_per_trade_fraction / (entry - st.stop)
+        qty = eq * limits.risk_per_trade_fraction / abs(entry - st.stop)
         if limits.max_position_fraction is not None:
             qty = min(qty, eq * limits.max_position_fraction / entry)
         qty = float(math.floor(qty))
@@ -144,10 +150,14 @@ def open_setups(setups: list[Setup], broker, adapter: MarketDataAdapter, limits:
             continue
         n = setup_to_note(st)
         plan = TradePlan(plan_id=st.note_id, mode=Mode.PAPER, instrument=st.symbol, asset_class=AssetClass.EQUITY,
-                         venue=venue, side=Side.LONG, horizon="swing", entry=entry, stop=st.stop, quantity=qty,
-                         quote=quote, thesis=n.thesis, opposing_thesis=n.opposing_thesis,
-                         invalidation=n.invalidation, confidence=Confidence.LOW)
-        res = broker.submit(plan, now, take_profit=st.target, time_in_force="gtc")
+                         venue=venue, side=Side.LONG if long else Side.SHORT, horizon="swing", entry=entry,
+                         stop=st.stop, quantity=qty, quote=quote, thesis=n.thesis,
+                         opposing_thesis=n.opposing_thesis, invalidation=n.invalidation, confidence=Confidence.LOW)
+        try:
+            res = broker.submit(plan, now, take_profit=st.target, time_in_force="gtc")
+        except Exception as exc:  # e.g. symbol not shortable / broker rejection: keep going
+            results.append({**r, "status": "error", "reason": f"{type(exc).__name__}: {exc}"})
+            continue
         if res.approved:
             new += 1
             held.add(st.symbol)
@@ -177,9 +187,10 @@ def manage(broker, journal: Journal, now: Optional[datetime] = None, max_hold_da
             continue
         filled = datetime.fromisoformat(f["at"]).astimezone(ET).date()
         sym = plans[pid]["instrument"]
-        if _weekdays_between(filled, now.date()) >= max_hold_days and broker.has_position(sym):
+        limit_days = HOLD_DAYS.get(pid.split("-")[1], max_hold_days)
+        if _weekdays_between(filled, now.date()) >= limit_days and broker.has_position(sym):
             broker.flatten(sym)
-            journal.append("exit", pid, {"reason": f"time_stop_{max_hold_days}d"}, now)
+            journal.append("exit", pid, {"reason": f"time_stop_{limit_days}d"}, now)
             out.append(pid)
     return out
 

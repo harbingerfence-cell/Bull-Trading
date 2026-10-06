@@ -117,3 +117,49 @@ def test_queue_freshness_guard():
     assert queue_is_fresh("2026-10-06", NOW) and queue_is_fresh("2026-10-03", NOW)   # weekend gap ok
     assert not queue_is_fresh("2026-09-20", NOW) and not queue_is_fresh(None, NOW)
     assert not queue_is_fresh("2026-10-09", NOW)                                      # future-dated
+
+
+def _event_bars(up=True, vol_mult=3.0, move=0.06):
+    from bull_brain.orb import Bar
+    base = [Bar(datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(days=i), 100, 100.5, 99.5, 100, 1e6) for i in range(40)]
+    c = 100 * (1 + move if up else 1 - move)
+    hi, lo = (c * 1.002, 99.8) if up else (100.2, c * 0.998)
+    base.append(Bar(base[-1].ts + timedelta(days=1), 100, hi, lo, c, vol_mult * 1e6))
+    return base
+
+
+def test_event_day_detector_both_sides_and_thresholds():
+    import bull_brain.patterns as P
+    s = P.Series(_event_bars(True)); sig = P.event_day(s, len(s.b) - 1)
+    assert sig.side == "LONG" and sig.stop < 106 < sig.target
+    s = P.Series(_event_bars(False)); sig = P.event_day(s, len(s.b) - 1)
+    assert sig.side == "SHORT" and sig.target < 94 < sig.stop
+    assert P.event_day(P.Series(_event_bars(True, vol_mult=2.0)), 40) is None   # not enough volume
+    assert P.event_day(P.Series(_event_bars(True, move=0.03)), 40) is None      # not enough move
+
+
+def test_short_event_setup_opens_as_short_bracket_and_errors_do_not_stop_the_run():
+    bad = FB()
+    orig = bad.submit
+    def boom(plan, now=None, take_profit=None, time_in_force="day"):
+        if plan.instrument == "BAD":
+            raise RuntimeError("asset not shortable")
+        return orig(plan, now, take_profit, time_in_force)
+    bad.submit = boom
+    mk = lambda sym: Setup(sym, "event_day", "2026-10-06", 94.0, 99.0, 84.0, "SHORT")
+    res = open_setups([mk("BAD"), mk("OK")], bad, adapter(BAD=93.0, OK=93.0), full_limits(), NOW)
+    assert res[0]["status"] == "error" and "not shortable" in res[0]["reason"] and res[1]["status"] == "submitted"
+    plan, tp, tif = bad.sub[0]
+    assert plan.side.value == "SHORT" and tp == 84.0 and tif == "gtc" and plan.entry == pytest.approx(92.9)
+    # live price beyond the stop is skipped
+    r = open_setups([mk("X")], FB(), adapter(X=99.5), full_limits(), NOW)[0]
+    assert r["status"] == "skipped"
+
+
+def test_event_day_time_stop_is_20_days(tmp_path):
+    j = Journal(tmp_path / "j.jsonl")
+    filled = datetime(2026, 9, 7, 13, 31, tzinfo=timezone.utc)  # ~21 weekdays before NOW
+    for pid, sym in (("swing-event_day-AAA-1", "AAA"), ("swing-bull_flag-BBB-1", "BBB")):
+        j.append("plan", pid, {"instrument": sym}, filled); j.append("fill", pid, {}, filled)
+    b = FB(held={"AAA", "BBB"})
+    assert manage(b, j, NOW) == ["swing-event_day-AAA-1"]  # 21 >= 20 but < 30
