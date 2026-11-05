@@ -47,8 +47,10 @@ class Engine:
             "day_start_equity": C.STARTING_BANKROLL, "daily_halt": False, "dd_paused": False,
             "seen_tx": {}, "entries": {}, "signals": {}, "positions": [], "trader": {}, "demoted": {},
             "period": self._new_period(), "api_fail_streak": 0, "last_api_alert": 0,
-            "last_daily_report": "", "last_weekly_review": "", "final_report_sent": False,
+            "last_weekly_review": "", "final_report_sent": False,
             "watch_wallets": {},
+            # don't fire a daily report on the first start if it's already past 8 PM CT
+            "last_daily_report": now_ct(t).strftime("%Y-%m-%d") if now_ct(t).hour >= C.DAILY_REPORT_HOUR_CT else "",
         }
 
     @staticmethod
@@ -313,6 +315,7 @@ class Engine:
         if self.s["period"]["start_equity"] is None:
             self.s["period"]["start_equity"] = self.equity()
         errors = []
+        self.last_fetch = {}
         now = time.time()
         try:
             self.mark_positions()
@@ -327,6 +330,8 @@ class Engine:
             except api.ApiError as e:
                 errors.append("%s trades: %s" % (trader["name"], e))
                 continue
+            newest = max((t["ts"] for t in trades), default=0)
+            self.last_fetch[trader["name"]] = (len(trades), int((now - newest) / 60) if newest else None)
             for t in trades:
                 if t["side"] == "BUY" and now - t["ts"] <= C.CONFIRM_WINDOW_SEC:
                     self._record_signal(w, t)

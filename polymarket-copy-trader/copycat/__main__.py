@@ -40,6 +40,7 @@ def main(argv):
     if cmd == "once":
         errs = eng.run_cycle()
         print("errors:", errs or "none")
+        print("fetched:", eng.last_fetch)
         print(reports.daily(eng))
     elif cmd == "report":
         print(reports.daily(eng))
@@ -62,6 +63,10 @@ def main(argv):
                 scheduled(eng)
                 print("%s cycle ok, %d open, equity %.2f, errors %d" % (
                     now_ct().strftime("%H:%M"), len(eng.s["positions"]), eng.equity(), len(errs)), flush=True)
+                print("  fetched (trades, newest age min): " + "; ".join(
+                    "%s %s/%s" % (k, n, a) for k, (n, a) in eng.last_fetch.items()), flush=True)
+                for e in errs[:3]:
+                    print("  error: " + e[:300], flush=True)
             except Exception:
                 traceback.print_exc()
                 if time.time() - last_err_alert > 3600:
