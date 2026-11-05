@@ -33,6 +33,34 @@ def scheduled(engine):
         engine.save()
 
 
+def selftest(eng):
+    """Exercise every read endpoint once against a real recent trade. Read-only, places nothing."""
+    from . import api
+    from .markets import classify, simulate_buy
+    out = []
+    try:
+        w = C.CORE[0]["wallet"]
+        trades = api.recent_trades(w)
+        t = next(x for x in trades if x["side"] == "BUY")
+        m = api.market(t["condition_id"])
+        out.append("market: %s | end %s | liq %s | closed %s" % (
+            (m or {}).get("question", "NONE")[:60], (m or {}).get("endDate"), (m or {}).get("liquidityNum"),
+            (m or {}).get("closed")))
+        tags = api.event_tags(t["event_slug"])
+        out.append("tags %s -> %s" % (tags[:6], classify(tags, t["title"])))
+        bids, asks = api.book(t["token_id"])
+        out.append("book: best bid %s best ask %s; $20 fill %s" % (
+            bids[0] if bids else None, asks[0] if asks else None, simulate_buy(asks, 20)[1:] if asks else None))
+        pos = api.positions(w)
+        out.append("positions: %s" % ("truncated" if pos is None else len(pos)))
+        cl = api.closed_positions(w)
+        out.append("closed positions: %d, sample %s" % (len(cl), cl[0] if cl else None))
+    except Exception as e:
+        out.append("SELFTEST FAILED: %r" % e)
+    for line in out:
+        print("  selftest " + line, flush=True)
+
+
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else "run"
     eng = Engine(notifier=notify.send)
@@ -42,6 +70,8 @@ def main(argv):
         print("errors:", errs or "none")
         print("fetched:", eng.last_fetch)
         print(reports.daily(eng))
+    elif cmd == "selftest":
+        selftest(eng)
     elif cmd == "report":
         print(reports.daily(eng))
     elif cmd == "weekly":
@@ -56,6 +86,7 @@ def main(argv):
         print("drawdown pause cleared; peak reset to current equity")
     elif cmd == "run":
         print("COPYCAT PAPER mode starting. Bankroll %.2f." % eng.s["bankroll_start"], flush=True)
+        selftest(eng)
         while True:
             t0 = time.time()
             try:
