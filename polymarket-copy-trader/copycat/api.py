@@ -80,39 +80,62 @@ def normalize_trade(r):
 
 
 def recent_trades(wallet, limit=100):
-    rows = _first_working(["/v2/trades", "/trades"], {"user": wallet, "limit": limit})
+    rows = _first_working(["/v2/trades"], {"user": wallet, "limit": limit})
     out = [normalize_trade(r) for r in rows]
     if not out:  # fall back to activity feed, filtered to trades
-        rows = _first_working(["/v2/activity", "/activity"], {"user": wallet, "limit": limit})
+        rows = _first_working(["/v2/activity"], {"user": wallet, "limit": limit})
         out = [normalize_trade(r) for r in rows]
     return [t for t in out if t["type"] == "TRADE" and t["side"] in ("BUY", "SELL") and t["token_id"]]
 
 
-def positions(wallet, limit=500):
-    rows = _first_working(["/v2/positions", "/positions"], {"user": wallet, "limit": limit, "sizeThreshold": 0})
-    if len(rows) >= limit:
+def _ts(v):
+    """Epoch seconds from an int/float/str epoch or an ISO timestamp."""
+    if v in (None, ""):
+        return 0
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        from datetime import datetime
+        try:
+            return int(datetime.fromisoformat(str(v).replace("Z", "+00:00")).timestamp())
+        except ValueError:
+            return 0
+
+
+def positions(wallet, limit=1000):
+    """Open positions: {token_id: size}. None if the list was truncated."""
+    payload = _get(DATA + "/v2/positions", {"user": wallet, "limit": limit})
+    rows = _rows(payload)
+    more = isinstance(payload, dict) and (payload.get("pagination") or {}).get("has_more")
+    if more or len(rows) >= limit:
         return None  # truncated: cannot infer that a missing token was closed
     out = {}
     for r in rows:
         tok = str(g(r, "token_id", "asset", default=""))
         if tok:
-            out[tok] = float(g(r, "size", default=0))
+            out[tok] = float(g(r, "current_size", "size", default=0))
     return out
 
 
-def closed_positions(wallet, limit=500):
-    """Resolved/closed positions with realized PnL, used for trader stats."""
-    rows = _first_working(["/v2/closed-positions", "/closed-positions"], {"user": wallet, "limit": limit})
-    out = []
-    for r in rows:
-        out.append({
-            "condition_id": g(r, "condition_id", "conditionId", default=""),
-            "title": g(r, "title", default=""),
-            "event_slug": g(r, "event_slug", "eventSlug", default=""),
-            "pnl": float(g(r, "realized_pnl", "realizedPnl", default=0)),
-            "ts": int(float(g(r, "timestamp", "end_date_ts", default=0) or 0)),
-            "end_date": g(r, "end_date", "endDate", default=""),
-        })
+def closed_positions(wallet, max_rows=3000):
+    """Closed positions with realized PnL (v2 /positions?status=CLOSED, cursor-paged), for trader stats."""
+    out, cursor = [], None
+    while len(out) < max_rows:
+        payload = _get(DATA + "/v2/positions", {"user": wallet, "status": "CLOSED", "limit": 1000,
+                                                "sort_by": "TIMESTAMP", "cursor": cursor})
+        for r in _rows(payload):
+            out.append({
+                "condition_id": g(r, "condition_id", "conditionId", default=""),
+                "title": g(r, "title", default=""),
+                "event_slug": g(r, "event_slug", "eventSlug", default=""),
+                "pnl": float(g(r, "realized_pnl", "realizedPnl", default=0)),
+                "ts": _ts(g(r, "last_event_at", "timestamp", "end_date")),
+                "end_date": g(r, "end_date", "endDate", default=""),
+            })
+        pg = payload.get("pagination") if isinstance(payload, dict) else None
+        cursor = (pg or {}).get("next_cursor")
+        if not cursor or not (pg or {}).get("has_more", True):
+            break
     return out
 
 

@@ -52,7 +52,7 @@ def selftest(eng):
         out.append("book: best bid %s best ask %s; $20 fill %s" % (
             bids[0] if bids else None, asks[0] if asks else None, simulate_buy(asks, 20)[1:] if asks else None))
         pos = api.positions(w)
-        out.append("positions: %s" % ("truncated" if pos is None else len(pos)))
+        out.append("positions: %s, nonzero sizes %s" % ("truncated" if pos is None else len(pos), "-" if pos is None else sum(1 for v in pos.values() if v > 0)))
         cl = api.closed_positions(w)
         out.append("closed positions: %d, sample %s" % (len(cl), cl[0] if cl else None))
     except Exception as e:

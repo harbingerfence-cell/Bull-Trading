@@ -9,8 +9,8 @@ No keys, no wallet, no order placement exist in this code. Live trading is not i
     python -m unittest discover tests
 
 ## Data
-- Trades: data-api.polymarket.com `/v2/trades` (falls back to `/trades`, then `/v2/activity`)
-- Positions / closed positions: data-api `/v2/positions`, `/v2/closed-positions` (fall back to v1 paths)
+- Trades: data-api.polymarket.com `/v2/trades` (falls back to `/v2/activity`). Data API v1 was retired 2026-10-24.
+- Positions: data-api `/v2/positions`; closed positions: `/v2/positions?status=CLOSED` (cursor-paged)
 - Market metadata, tags, end date, liquidity: gamma-api.polymarket.com
 - Fill simulation: clob.polymarket.com `/book` (walks the book for a realistic paper fill)
 - polymarketanalytics.com renders its stats with JavaScript, so win rate / category stats are computed
