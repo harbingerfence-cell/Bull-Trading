@@ -86,6 +86,8 @@ def main(argv):
         print("drawdown pause cleared; peak reset to current equity")
     elif cmd == "run":
         print("COPYCAT PAPER mode starting. Bankroll %.2f." % eng.s["bankroll_start"], flush=True)
+        from . import web
+        web.start()
         selftest(eng)
         while True:
             t0 = time.time()
